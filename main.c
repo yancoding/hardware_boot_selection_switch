@@ -30,6 +30,7 @@
 #include "bsp/board.h"
 #include "tusb.h"
 #include "pico/stdlib.h"
+#include "st7735.h"
 
 //--------------------------------------------------------------------+
 // MACRO CONSTANT TYPEDEF PROTYPES
@@ -50,11 +51,13 @@ enum  {
 
 
 static uint32_t blink_interval_ms = BLINK_NOT_MOUNTED;
+static bool tft_refresh_requested = true;
 
 void led_blinking_task(void);
 void cdc_task(void);
+void tft_display_task(void);
 
-uint8_t read_switch_value()
+uint8_t read_switch_value(void)
 {  
   return gpio_get(SWITCH_PIN) ? '1' : '0';
 }
@@ -69,6 +72,7 @@ int main(void)
   
   
   board_init();
+  tft_init();
   tusb_init();
   
 
@@ -76,6 +80,7 @@ int main(void)
   {
     tud_task(); // tinyusb device task
     led_blinking_task();
+    tft_display_task();
 
     cdc_task();
   }
@@ -91,6 +96,8 @@ int main(void)
 void tud_mount_cb(void)
 {
   blink_interval_ms = BLINK_MOUNTED;
+  tft_set_backlight(true);
+  tft_refresh_requested = true;
 }
 
 // Invoked when device is unmounted
@@ -106,12 +113,15 @@ void tud_suspend_cb(bool remote_wakeup_en)
 {
   (void) remote_wakeup_en;
   blink_interval_ms = BLINK_SUSPENDED;
+  tft_set_backlight(false);
 }
 
 // Invoked when usb bus is resumed
 void tud_resume_cb(void)
 {
   blink_interval_ms = BLINK_MOUNTED;
+  tft_set_backlight(true);
+  tft_refresh_requested = true;
 }
 
 
@@ -178,4 +188,21 @@ void led_blinking_task(void)
 
   board_led_write(led_state);
   led_state = 1 - led_state; // toggle
+}
+
+//--------------------------------------------------------------------+
+// TFT DISPLAY TASK
+//--------------------------------------------------------------------+
+void tft_display_task(void)
+{
+  static uint8_t previous_switch_value = 0;
+  uint8_t switch_value = read_switch_value();
+
+  if (!tft_refresh_requested && switch_value == previous_switch_value) {
+    return;
+  }
+
+  tft_show_boot_selection(switch_value);
+  previous_switch_value = switch_value;
+  tft_refresh_requested = false;
 }

@@ -26,6 +26,7 @@
 #include "bsp/board.h"
 #include "tusb.h"
 
+uint8_t read_switch_value(void);
 
 #if CFG_TUD_MSC
 

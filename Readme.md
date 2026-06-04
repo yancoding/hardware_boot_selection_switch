@@ -17,6 +17,21 @@
 #define SWITCH_PIN 28
 ```
 
+可选的 TFT 状态屏使用 1.8 寸 128x160 ST7735S SPI 模块，用来显示当前将启动的系统：
+
+| TFT 引脚 | Pico 引脚 | 说明 |
+| --- | --- | --- |
+| `GND` | `GND` | 地 |
+| `VDD` | `3V3(OUT)` | 3.3V 供电 |
+| `SCL` | `GPIO18` | SPI0 SCK |
+| `SDA` | `GPIO19` | SPI0 MOSI |
+| `RST` | `GPIO20` | 屏幕复位 |
+| `DC` | `GPIO16` | 数据/命令选择 |
+| `CS` | `GPIO17` | SPI 片选 |
+| `BLK` | `GPIO21` | 背光控制 |
+
+屏幕显示规则与 `switch.cfg` 保持一致：`0` 显示 Ubuntu，`1` 显示 Windows。USB suspend 时固件会关闭背光，resume 后重新打开并刷新当前状态。
+
 ## 环境要求
 
 - Raspberry Pi Pico 或兼容 RP2040 开发板

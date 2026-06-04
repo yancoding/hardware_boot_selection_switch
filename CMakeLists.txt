@@ -14,6 +14,7 @@ pico_sdk_init()
 add_executable(${PROJECT_NAME}
         main.c
         msc_disk.c
+        st7735.c
         usb_descriptors.c
 )
 
@@ -21,6 +22,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_LIST_DIR})
 
 target_link_libraries(${PROJECT_NAME} 
         PRIVATE 
+        hardware_spi
         pico_stdlib 
         tinyusb_device 
         tinyusb_board
