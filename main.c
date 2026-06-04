@@ -29,6 +29,8 @@
 
 #include "bsp/board.h"
 #include "tusb.h"
+#include "hardware/flash.h"
+#include "hardware/sync.h"
 #include "pico/stdlib.h"
 #include "st7735.h"
 
@@ -37,6 +39,13 @@
 //--------------------------------------------------------------------+
 
 #define SWITCH_PIN 28
+#define BUTTON_DEBOUNCE_MS 30
+#define BOOT_SELECTION_MAGIC 0x4C455342u
+#define BOOT_SELECTION_VERSION 1u
+#define BOOT_SELECTION_STORAGE_OFFSET 0x1FF000u
+
+_Static_assert(BOOT_SELECTION_STORAGE_OFFSET % FLASH_SECTOR_SIZE == 0,
+              "boot selection storage must be sector-aligned");
 
 /* Blink pattern
  * - 250 ms  : device not mounted
@@ -52,14 +61,78 @@ enum  {
 
 static uint32_t blink_interval_ms = BLINK_NOT_MOUNTED;
 static bool tft_refresh_requested = true;
+static uint8_t current_switch_value = '0';
+
+typedef struct {
+  uint32_t magic;
+  uint32_t version;
+  uint8_t switch_value;
+  uint8_t inverted_switch_value;
+  uint8_t reserved[6];
+} boot_selection_config_t;
 
 void led_blinking_task(void);
 void cdc_task(void);
+void button_task(void);
 void tft_display_task(void);
 
+static bool is_valid_switch_value(uint8_t switch_value)
+{
+  return switch_value == '0' || switch_value == '1';
+}
+
+static const boot_selection_config_t *get_stored_boot_selection_config(void)
+{
+  return (const boot_selection_config_t *)(XIP_BASE + BOOT_SELECTION_STORAGE_OFFSET);
+}
+
+static bool boot_selection_config_is_valid(const boot_selection_config_t *config)
+{
+  return config->magic == BOOT_SELECTION_MAGIC &&
+         config->version == BOOT_SELECTION_VERSION &&
+         is_valid_switch_value(config->switch_value) &&
+         config->inverted_switch_value == (uint8_t)~config->switch_value;
+}
+
+static void load_boot_selection(void)
+{
+  const boot_selection_config_t *config = get_stored_boot_selection_config();
+
+  if (boot_selection_config_is_valid(config)) {
+    current_switch_value = config->switch_value;
+  } else {
+    current_switch_value = '0';
+  }
+}
+
+static void save_boot_selection(void)
+{
+  uint8_t page[FLASH_PAGE_SIZE];
+  boot_selection_config_t config = {
+    .magic = BOOT_SELECTION_MAGIC,
+    .version = BOOT_SELECTION_VERSION,
+    .switch_value = current_switch_value,
+    .inverted_switch_value = (uint8_t)~current_switch_value,
+  };
+
+  const boot_selection_config_t *stored_config = get_stored_boot_selection_config();
+  if (boot_selection_config_is_valid(stored_config) &&
+      stored_config->switch_value == current_switch_value) {
+    return;
+  }
+
+  memset(page, 0xFF, sizeof(page));
+  memcpy(page, &config, sizeof(config));
+
+  uint32_t interrupts = save_and_disable_interrupts();
+  flash_range_erase(BOOT_SELECTION_STORAGE_OFFSET, FLASH_SECTOR_SIZE);
+  flash_range_program(BOOT_SELECTION_STORAGE_OFFSET, page, sizeof(page));
+  restore_interrupts(interrupts);
+}
+
 uint8_t read_switch_value(void)
-{  
-  return gpio_get(SWITCH_PIN) ? '1' : '0';
+{
+  return current_switch_value;
 }
 
 /*------------- MAIN -------------*/
@@ -67,25 +140,64 @@ int main(void)
 {
 
   gpio_init(SWITCH_PIN);
-	gpio_set_dir(SWITCH_PIN, false);
-  gpio_set_pulls (SWITCH_PIN,false,true);
-  
-  
+  gpio_set_dir(SWITCH_PIN, false);
+  gpio_set_pulls(SWITCH_PIN, false, true);
+
   board_init();
+  load_boot_selection();
   tft_init();
   tusb_init();
-  
 
   while (1)
   {
     tud_task(); // tinyusb device task
     led_blinking_task();
+    button_task();
     tft_display_task();
 
     cdc_task();
   }
 
   return 0;
+}
+
+//--------------------------------------------------------------------+
+// BUTTON TASK
+//--------------------------------------------------------------------+
+void button_task(void)
+{
+  static bool initialized = false;
+  static bool debounced_pressed = false;
+  static bool last_raw_pressed = false;
+  static uint32_t last_change_ms = 0;
+
+  bool raw_pressed = gpio_get(SWITCH_PIN);
+  uint32_t now = board_millis();
+
+  if (!initialized) {
+    initialized = true;
+    debounced_pressed = raw_pressed;
+    last_raw_pressed = raw_pressed;
+    last_change_ms = now;
+    return;
+  }
+
+  if (raw_pressed != last_raw_pressed) {
+    last_raw_pressed = raw_pressed;
+    last_change_ms = now;
+    return;
+  }
+
+  if (raw_pressed == debounced_pressed || now - last_change_ms < BUTTON_DEBOUNCE_MS) {
+    return;
+  }
+
+  debounced_pressed = raw_pressed;
+  if (debounced_pressed) {
+    current_switch_value = current_switch_value == '0' ? '1' : '0';
+    save_boot_selection();
+    tft_refresh_requested = true;
+  }
 }
 
 //--------------------------------------------------------------------+
