@@ -18,6 +18,12 @@
 #define SWITCH_PIN 28
 ```
 
+## 硬件照片
+
+Raspberry Pi Pico 主板参考照片：
+
+![Raspberry Pi Pico 主板](docs/images/pico-board.png)
+
 可选的 TFT 状态屏使用 1.8 寸 128x160 ST7735S SPI 模块，用来显示当前将启动的系统：
 
 ![1.8 寸 128x160 ST7735S TFT 屏幕](docs/images/tft-st7735s.png)
